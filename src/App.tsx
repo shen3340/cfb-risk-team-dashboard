@@ -169,7 +169,7 @@ const App = () => {
         </Form.Group>
   
         <Button variant="primary" onClick={fetchMvpPlayers} disabled={!team}>
-          Fetch MVP Players
+          Get Data
         </Button>
       </div>
   
