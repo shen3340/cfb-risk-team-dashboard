@@ -16,6 +16,8 @@ const App = () => {
   const [isMvpFetched, setIsMvpFetched] = useState<boolean>(false);
   const [defendTerritories, setDefendTerritories] = useState<string[]>([]);
   const [attackTerritories, setAttackTerritories] = useState<string[]>([]);
+  const [odds, setOdds] = useState<{ territory: string; winner: string; chance: number; combined_info: string }[]>([]);
+
 
   // Fetch available seasons when component mounts
   useEffect(() => {
@@ -72,6 +74,40 @@ const App = () => {
     fetchTeams();
   }, [season]);
 
+  const fetchData = async () => {
+    if (!team) {
+      console.warn("fetchData: Team is required");
+      return;
+    }
+  
+    console.log(`Fetching MVP players and legal moves for Team: ${team}, Season: ${season}, Day: ${day}`);
+  
+    await fetchMvpPlayers();
+    await fetchLegalMoves();
+    await fetchOdds();
+  };
+
+  const fetchLegalMoves = async () => {
+    if (!season || !day || !team) {
+      console.warn("fetchLegalMoves: Missing required values (season, day, team)");
+      return;
+    }
+  
+    console.log(`Fetching legal moves for Season: ${season}, Day: ${day}, Team: ${team}`);
+  
+    try {
+      const { defend, attack } = await getLegalMoves(season, day + 1, team);
+      
+      console.log("Defend Territories:", defend);
+      console.log("Attack Territories:", attack);
+  
+      setDefendTerritories(defend);
+      setAttackTerritories(attack);
+    } catch (error) {
+      console.error("Error fetching legal moves:", error);
+    }
+  };
+
   // Fetch MVP players
   const fetchMvpPlayers = async () => {
     try {
@@ -95,6 +131,100 @@ const App = () => {
       console.error("Error fetching MVP players", error);
     }
   };
+
+  const fetchOdds = async () => {
+    if (!season || !day || !team) {
+      console.warn("fetchOdds: Missing required values (season, day, team)");
+      return;
+    }
+  
+    console.log(`Fetching odds for Season: ${season}, Day: ${day}, Team: ${team}`);
+  
+    try {
+      // Fetch team odds
+      const response = await axios.get(`${base}/team/odds`, {
+        params: { team, season, day },
+      });
+  
+      if (!Array.isArray(response.data)) {
+        console.error("Unexpected API response format for team odds:", response.data);
+        setOdds([]);
+        return;
+      }
+  
+      let teamOdds = response.data.map((entry: any) => ({
+        territory: entry.territory,
+        winner: entry.winner,
+        chance: entry.chance,
+      }));
+  
+      // Fetch additional data for each unique territory
+      const uniqueTerritories = [...new Set(teamOdds.map((odds) => odds.territory))];
+      let territoryData: { [key: string]: string } = {};
+  
+      await Promise.all(
+        uniqueTerritories.map(async (territory) => {
+          try {
+            const territoryResponse = await axios.get(`${base}/territory/turn`, {
+              params: { territory, season, day },
+            });
+  
+            if (!territoryResponse.data || !territoryResponse.data.teams) {
+              console.warn(`No team data found for territory: ${territory}`);
+              return;
+            }
+  
+            const teamDetails = territoryResponse.data.teams.map((team: any) => ({
+              team: team.team,
+              players: team.players,
+              power: team.power,
+            }));
+  
+            // Format details into a string
+            const combinedInfo = teamDetails
+            .filter((t: { team: string; players: number; power: number }) => t.players > 0)
+              .map((t: { team: string; players: number; power: number }) =>
+                `${t.team}: ${t.players} Players, ${t.power.toFixed(2)} Power`
+              )
+              
+              .join(" | ");
+  
+            territoryData[territory] = combinedInfo;
+          } catch (error) {
+            console.error(`Error fetching territory data for ${territory}:`, error);
+          }
+        })
+      );
+  
+      // Merge odds data with territory data
+      const mergedOdds = teamOdds.map((odds) => ({
+        territory: odds.territory,
+        winner: odds.winner,
+        chance: odds.chance,
+        combined_info: territoryData[odds.territory] || "",
+      }));
+      
+  
+      // Sorting logic
+      const sortedOdds = mergedOdds.sort((a, b) => {
+        // 1. Prioritize entries where winner matches myteam
+        if (a.winner === team && b.winner !== team) return -1;
+        if (b.winner === team && a.winner !== team) return 1;
+  
+        // 2. Sort by chance (higher chance first)
+        if (b.chance !== a.chance) return b.chance - a.chance;
+  
+        // 3. Sort alphabetically by territory name
+        return a.territory.localeCompare(b.territory);
+      });
+  
+      setOdds(sortedOdds);
+    } catch (error) {
+      console.error("Error fetching odds:", error);
+      setOdds([]);
+    }
+  };
+  
 
   // Fetch legal moves
   const getLegalMoves = async (season: number, day: number, myteam: string,  excluded_ids: number[] = []) => {
@@ -162,30 +292,6 @@ const App = () => {
     }
   };
   
-  
-  
-
-  const fetchLegalMoves = async () => {
-    if (!season || !day || !team) {
-      console.warn("fetchLegalMoves: Missing required values (season, day, team)");
-      return;
-    }
-  
-    console.log(`Fetching legal moves for Season: ${season}, Day: ${day}, Team: ${team}`);
-  
-    try {
-      const { defend, attack } = await getLegalMoves(season, day + 1, team);
-      
-      console.log("Defend Territories:", defend);
-      console.log("Attack Territories:", attack);
-  
-      setDefendTerritories(defend);
-      setAttackTerritories(attack);
-    } catch (error) {
-      console.error("Error fetching legal moves:", error);
-    }
-  };
-
   return (
     <div className="container mt-3">
       <h1>College Football Risk Dashboard</h1>
@@ -223,12 +329,8 @@ const App = () => {
             </Form.Control>
           </Form.Group>
 
-          <Button variant="primary" onClick={fetchMvpPlayers} disabled={!team}>
-            Get MVP Players
-          </Button>
-
-          <Button variant="secondary" onClick={fetchLegalMoves} disabled={!team} className="ms-2">
-            Get Legal Moves
+          <Button variant="primary" onClick={fetchData} disabled={!team}>
+            Get Data
           </Button>
         </div>
 
@@ -242,6 +344,32 @@ const App = () => {
 
           <strong>Attack:</strong>
           <p>{attackTerritories.length ? attackTerritories.join(", ") : "No attackable territories"}</p>
+
+          <h3>Odds</h3>
+          {odds.length ? (
+            <table className="table table-striped">
+              <thead>
+                <tr>
+                  <th>Territory</th>
+                  <th>Winner</th>
+                  <th>Chance</th>
+                  <th>Details</th>
+                </tr>
+              </thead>
+              <tbody>
+                {odds.map((odd, index) => (
+                  <tr key={index}>
+                    <td>{odd.territory}</td>
+                    <td>{odd.winner}</td>
+                    <td>{(odd.chance * 100).toFixed(2)}%</td>
+                    <td>{odd.combined_info}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <p>No odds available</p>
+          )}
         </div>
       </div>
     </div>
