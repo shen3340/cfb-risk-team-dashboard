@@ -2,8 +2,6 @@ import { useState, useEffect } from "react";
 import axios from "axios";
 import { Button, Form } from "react-bootstrap";
 import "bootstrap/dist/css/bootstrap.min.css";
-
-// API base URL
 const base = "https://dough.collegefootballrisk.com/api";
 
 const App = () => {
@@ -18,8 +16,7 @@ const App = () => {
   const [attackTerritories, setAttackTerritories] = useState<string[]>([]);
   const [odds, setOdds] = useState<{ territory: string; winner: string; chance: number; combined_info: string }[]>([]);
 
-
-  // Fetch available seasons when component mounts
+  // Fetch available seasons
   useEffect(() => {
     const fetchSeasons = async () => {
       try {
@@ -44,7 +41,7 @@ const App = () => {
     fetchSeasons();
   }, []);
 
-  // Fetch teams when season changes
+  // Fetch relevant teams for season
   useEffect(() => {
     if (!season) return;
 
@@ -79,9 +76,7 @@ const App = () => {
       console.warn("fetchData: Team is required");
       return;
     }
-  
-    console.log(`Fetching MVP players and legal moves for Team: ${team}, Season: ${season}, Day: ${day}`);
-  
+
     await fetchMvpPlayers();
     await fetchLegalMoves();
     await fetchOdds();
@@ -93,14 +88,8 @@ const App = () => {
       return;
     }
   
-    console.log(`Fetching legal moves for Season: ${season}, Day: ${day}, Team: ${team}`);
-  
     try {
       const { defend, attack } = await getLegalMoves(season, day + 1, team);
-      
-      console.log("Defend Territories:", defend);
-      console.log("Attack Territories:", attack);
-  
       setDefendTerritories(defend);
       setAttackTerritories(attack);
     } catch (error) {
@@ -108,7 +97,6 @@ const App = () => {
     }
   };
 
-  // Fetch MVP players
   const fetchMvpPlayers = async () => {
     try {
       const response = await axios.get(`${base}/team/players`, {
@@ -137,11 +125,7 @@ const App = () => {
       console.warn("fetchOdds: Missing required values (season, day, team)");
       return;
     }
-  
-    console.log(`Fetching odds for Season: ${season}, Day: ${day}, Team: ${team}`);
-  
     try {
-      // Fetch team odds
       const response = await axios.get(`${base}/team/odds`, {
         params: { team, season, day },
       });
@@ -158,7 +142,7 @@ const App = () => {
         chance: entry.chance,
       }));
   
-      // Fetch additional data for each unique territory
+      // Fetch territory info
       const uniqueTerritories = [...new Set(teamOdds.map((odds) => odds.territory))];
       let territoryData: { [key: string]: string } = {};
   
@@ -173,14 +157,11 @@ const App = () => {
               console.warn(`No team data found for territory: ${territory}`);
               return;
             }
-  
             const teamDetails = territoryResponse.data.teams.map((team: any) => ({
               team: team.team,
               players: team.players,
               power: team.power,
             }));
-  
-            // Format details into a string
             const combinedInfo = teamDetails
             .filter((t: { team: string; players: number; power: number }) => t.players > 0)
               .map((t: { team: string; players: number; power: number }) =>
@@ -195,26 +176,16 @@ const App = () => {
           }
         })
       );
-  
-      // Merge odds data with territory data
       const mergedOdds = teamOdds.map((odds) => ({
         territory: odds.territory,
         winner: odds.winner,
         chance: odds.chance,
         combined_info: territoryData[odds.territory] || "",
       }));
-      
-  
-      // Sorting logic
       const sortedOdds = mergedOdds.sort((a, b) => {
-        // 1. Prioritize entries where winner matches myteam
         if (a.winner === team && b.winner !== team) return -1;
         if (b.winner === team && a.winner !== team) return 1;
-  
-        // 2. Sort by chance (higher chance first)
         if (b.chance !== a.chance) return b.chance - a.chance;
-  
-        // 3. Sort alphabetically by territory name
         return a.territory.localeCompare(b.territory);
       });
   
@@ -225,61 +196,37 @@ const App = () => {
     }
   };
   
-
-  // Fetch legal moves
   const getLegalMoves = async (season: number, day: number, myteam: string,  excluded_ids: number[] = []) => {
-    const url = `${base}/territories?day=${day}&season=${season}`;
-    console.log("API Request URL:", url);
-  
+    const url = `${base}/territories?day=${day}&season=${season}`;  
     try {
-      const response = await axios.get(url);
-      console.log("Raw API Response:", response.data);
-  
+      const response = await axios.get(url);  
       if (!Array.isArray(response.data)) {
         console.error("Unexpected API response format:", response.data);
         return { defend: [], attack: [] };
       }
   
-      // Ensure neighbors are converted into integer arrays if they are strings
+      // Correct data formatting
       const data = response.data.map((territory: any) => ({
         id: territory.id,
         name: territory.name,
         owner: territory.owner,
-        // Map neighbors to only their IDs
         neighbors: territory.neighbors.map((neighbor: any) => neighbor.id)
       }));
-  
-      console.log("Processed Territories Data:", data);
-  
-      // **Defend Territories:**
-      // - Owned by myteam
-      // - At least one neighbor is NOT owned by myteam (excluding Sicily)
-      const defendTerritories = data
-        .filter(t => t.owner === myteam && // Territory is owned by myteam
-              !t.neighbors.every((neighborId: number) => // Exclude if every neighbor is owned by myteam
+        const defendTerritories = data
+        .filter(t => t.owner === myteam && 
+              !t.neighbors.every((neighborId: number) => 
                 data.find(nt => nt.id === neighborId)?.owner === myteam))
         .map(t => t.name)
         .sort();
-  
-      console.log("Defend Territories:", defendTerritories);
-  
-      // **Attack Territories:**
-      // - Not owned by myteam
-      // - At least one neighbor is NOT owned by myteam (excluding Sicily)
-      // - Excluding Sicily itself (id: 249)
       const attackTerritories = data
-        .filter(t => t.owner !== myteam && // Territory is not owned by myteam
-              t.neighbors.some((neighborId: number) => // At least one neighbor is owned by myteam
+        .filter(t => t.owner !== myteam && 
+              t.neighbors.some((neighborId: number) => 
                 data.find(nt => nt.id === neighborId)?.owner === myteam) &&
-              !excluded_ids.includes(t.id) && // Exclude territories in excluded_ids
-              t.id !== 249 && // Exclude Sicily
-              t.id !== 186) // Exclude additional territories (like 186)
+              !excluded_ids.includes(t.id) && 
+              t.id !== 249 && t.id !== 186) 
         .map(t => t.name)
         .sort();
-  
-      console.log("Filtered Attack Territories:", attackTerritories);
-      
-      // Check if any territories match the attack criteria
+      // check that array populates
       if (attackTerritories.length === 0) {
         console.warn("No attack territories found. Check neighbor ownership conditions.");
       }
@@ -352,8 +299,8 @@ const App = () => {
                 <tr>
                   <th>Territory</th>
                   <th>Winner</th>
-                  <th>Chance</th>
-                  <th>Details</th>
+                  <th>My Team Win %</th>
+                  <th>Territory Data</th>
                 </tr>
               </thead>
               <tbody>
@@ -375,5 +322,4 @@ const App = () => {
     </div>
   );
 };
-
 export default App;
