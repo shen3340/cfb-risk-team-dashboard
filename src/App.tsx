@@ -139,7 +139,7 @@ const App = () => {
 
   return (
     <div className="container mt-3">
-      <h1>College Football Risk Dashboard</h1>
+      <h1>College Football Risk Website</h1>
       <div style={{ display: "flex", justifyContent: "space-between" }}>
         <div style={{ width: "40%" }}>
           <h3>Selection</h3>
